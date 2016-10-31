@@ -1,14 +1,9 @@
 # class for turning models into spherical harmonics functions
-# from numpy.polynomial.legendre import Legendre
 from numpy.polynomial.legendre import legval
 import numpy as np
 import numpy.linalg as LA
 import os
 
-# from time import time
-# from thor.math2 import arctan3, sph_harm
-
-# from thor.refdata import sph_quad_900
 from thor.scatter import simulate_shot
 
 import shtns
@@ -46,7 +41,7 @@ class SphericalModel(object):
     """
 
     
-    def __init__( self, traj ):
+    def __init__( self, traj, moo = False ):
         """
         Generate an instance of the SphericalModel class.
         
@@ -57,7 +52,48 @@ class SphericalModel(object):
         """
         
         self.model = traj[0]
-    
+        
+        if moo:
+            print("\
+                                                                      >*\n \
+                                                               #      >*\n \
+                The Spherical Cow                              #  ###>***~~~~~|\n \
+                                                               ####  *****^^^#\n \
+                                                          _____|       *#####\n \
+                                                         | ^^^#   \/ \/ #\n \
+                                                        ##^^###         |\n \
+                                                         ### ##*        *\n \
+             |_                                ********~~|_____>         *\n \
+             \\|_                 ________************        #>>***    ***\n \
+             \\\\|_             __|     *************        ## >>>*  *****\n \
+             |___  |______   __|         ***********       ##>### ^^^^^^^^^^\n \
+                |____    |__|           **********       >>>>## ^<^^^^^@^^^^^\n \
+                     #          ***      ********      **>>>># ^<^^@^^^@^^^^^\n \
+                      #      ***********    ******     *>>>## ^<<^^^^^^^^<<<\n \
+                      #      ***********    ******    **>>>## ^<<<<^^^<<<<<\n \
+                     #        *********      ****   ***>>>#### ^<<<<<<<<<\n \
+                     #         **********          ****>>>###### <<<<<\n \
+                     ##        **********          ****>>>>##      ##\n \
+                     ##         **  ***             ****>>>>        #     ##XXX\n \
+                     ##**                            *******         ##>>>>#XX\n \
+                      >>*                             ******         #######XXX\n \
+                      >>*****                           ***         ##__\n \
+                       >>*****   **** ***               **    *****     \__\n \
+                       >># **    *********              *********>>>#      XXX\n \
+                       ##        *********              *******>>>>>##     XXX\n \
+                    |~~           ********                 *>>>>> >#######XXX\n \
+                X~~~~ ###          *********          ######>          >>>XXXX\n \
+              XXX  #>>>##          ********>>##  #######\n \
+               XXX#>      #   ##>>>>>>>>>>>>>###UUUUU^^\n \
+               XXX        #  ####>>>>>>>>>>UUUUUUUUU^^\n \
+                          #  >>           UUUUUU^^^<()\n \
+                         #  >              U()^<()  ()\n \
+                       *#  *>               ()  ()\n \
+                      **** #\n \
+                        ***\n \
+                        ** ")    
+                        
+
     
     def simulate( self, q_values, n_theta, n_phi, lmax, n_psi, dont_rotate = True):
         """
@@ -101,7 +137,7 @@ class SphericalModel(object):
     @staticmethod
     def normalize_by_range( x ):    
         """
-        normalizes the array x by it's dynamic range and 
+        normalizes the array x by it's dynamic range and shifts x so it ranges [0,1]
         x: 1d np.array
         """
         range = np.max(x) - np.min(x)
