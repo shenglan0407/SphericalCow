@@ -95,7 +95,11 @@ class SphericalModel(object):
                         
 
     
-    def simulate( self, q_values, n_theta, n_phi, lmax, n_psi, dont_rotate = True):
+    def simulate( self, q_values, 
+        n_theta, n_phi, 
+        lmax, n_psi, 
+        dont_rotate = True,
+        make_positive = True):
         """
         Simulates S(q), projects into spherical harmonics, and computes correlation  
         
@@ -126,7 +130,11 @@ class SphericalModel(object):
     
         # project into spherical harmonics
         self._sph_harm_project()
-    
+        
+        # make sure that the inverse spherical transformation always gets a positive intensity map
+        if make_positive:
+            self._make_Sq_positive()
+
         # sum slm to get cl
         self._leg_coefs_from_sph_harm()
         
@@ -165,13 +173,32 @@ class SphericalModel(object):
         for i,q in enumerate(self.q_values):
             self.S_q[i,:] = simulate_shot(self.model, 1, q*qxyz, dont_rotate=dont_rotate, force_no_gpu=True)
         self.S_q = self.S_q.reshape( self.n_q, self.n_theta, self.n_phi )
+    
+    def _make_Sq_positive( self ):
+        """
+        Transform Sq into spherical harmonics and performes an inverse transformation. 
+        Make the inverse transformation positive by subtracting the minimum. Transform again to get
+        Sphiercal harmonic coefficients. This is kind of like cheating
+        """
+        Sq_pos = np.zeros_like(self.S_q)
         
+        # self.sh_obj = shtns.sht(self.lmax)    
+        # self.sh_obj.set_grid( self.n_theta, self.n_phi )
+        for iq in range(self.S_q.shape[0]):
+            ylm = self.sh.spec_array()
+            ylm = self.sh.analys( self.S_q[iq] )
+        
+            S2 = self.sh.synth(ylm)
+            Sq_pos[iq] = S2-S2.min()
+
+        self.Sq = Sq_pos.copy()
+
     def _sph_harm_project( self ):
         """
         computes spherical harmonic coefficients
         """
         # project into spherical harmonics
-        self.all_slm = np.zeros((self.n_q, int((self.lmax+2)*(self.lmax+1)/2) ) , dtype=np.complex)
+        self.all_slm = np.zeros((self.n_q, int((self.lmax+2)*(self.lmax+1)/2) ) , dtype=np.complex128)
 
         for i in range( self.n_q ):
             self.all_slm[i,:] = self.sh.analys( self.S_q[i].reshape( self.n_theta, self.n_phi ) )
@@ -184,24 +211,14 @@ class SphericalModel(object):
         """
         computes legengre polynomial coefficients from spherical harmonic coefficients
         """
-        self.cl = np.zeros( ( self.lmax+1, self.n_q, self.n_q) , dtype=np.complex64)
-        for l in range(self.lmax+1):
-            for i in range(self.n_q):
-                for j in range(i, self.n_q): 
-                    # this method will yield non-zero imag part but faster
-                    c = np.sum( [ self.all_slm[i][self.sh.idx(l,m)] * np.conjugate( self.all_slm[j][self.sh.idx(l,m)] ) * 2 \
-                    for m in range(1,l+1)] )
-                    c += self.all_slm[i][self.sh.idx(l,0)] * np.conjugate( self.all_slm[j][self.sh.idx(l,0)] )
-            
-                    self.cl[l,i,j] = c
-                    self.cl[l,j,i] = c
-        try:
-            assert ( np.all ( np.isclose( np.imag(self.cl), 0) ) )
-        except:
-            print ( "WARNING: Non-zero imaginary values occurred in legendre polynomial coefficients (cl)" )
-    
-        # only keep the real part of cl
-        self.cl = np.real (self.cl)
+
+        self.cl = np.zeros(( self.lmax+1, self.n_q, self.n_q), dtype = np.complex128)
+        for iq in range( self.n_q ):
+            for jq in range( self.n_q ):
+                for ll in range( self.lmax+1 ):
+                    self.cl[ll, iq, jq] = np.sum( np.conjugate( self.all_slm[iq][ self.sh.l==ll]) \
+                        * self.all_slm[jq][self.sh.l==ll]) * 2.0 \
+                    - np.conjugate( self.all_slm[iq][self.sh.idx(ll,0)] ) * all_slm[jq][self.sh.idx(ll,0)]
 
     def _sph_coefs_to_corr( self ):
         """
@@ -235,18 +252,18 @@ class SphericalModel(object):
 
 
 
-    def _Il_matrices(self, all_slm):
+    # def _Il_matrices(self, all_slm):
     
-        self.Il = []
-        for l in range(self.lmax+1):
-            if l==0:
-                slm = np.zeros((self.n_q, 1), dtype = np.complex64)
-                slm[:,0] = all_slm[:,self.sh.idx(0,0)]
-            else:
-                slm = np.zeros((self.n_q, 2*l+1), dtype = np.complex64)
-                for m in range(1,l+1):
-                    slm[:,m+l] = all_slm[:, self.sh.idx(l,m)]
-                    slm[:,-m+l] = (-1) ** m *np.conjugate(all_slm[:, self.sh.idx(l,m)]) 
-                slm[:,l] = all_slm[:, self.sh.idx(l,0)]
+    #     self.Il = []
+    #     for l in range(self.lmax+1):
+    #         if l==0:
+    #             slm = np.zeros((self.n_q, 1), dtype = np.complex64)
+    #             slm[:,0] = all_slm[:,self.sh.idx(0,0)]
+    #         else:
+    #             slm = np.zeros((self.n_q, 2*l+1), dtype = np.complex64)
+    #             for m in range(1,l+1):
+    #                 slm[:,m+l] = all_slm[:, self.sh.idx(l,m)]
+    #                 slm[:,-m+l] = (-1) ** m *np.conjugate(all_slm[:, self.sh.idx(l,m)]) 
+    #             slm[:,l] = all_slm[:, self.sh.idx(l,0)]
                 
-            self.Il.append(slm)
+    #         self.Il.append(slm)
