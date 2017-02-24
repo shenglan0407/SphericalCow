@@ -127,14 +127,14 @@ class SphericalModel(object):
         
         # simulate S_q
         self._compute_Sq( self.model, q_values, dont_rotate)
+
+         # make sure that the inverse spherical transformation always gets a positive intensity map
+        if make_positive:
+            self._make_Sq_positive()
     
         # project into spherical harmonics
         self._sph_harm_project()
         
-        # make sure that the inverse spherical transformation always gets a positive intensity map
-        if make_positive:
-            self._make_Sq_positive()
-
         # sum slm to get cl
         self._leg_coefs_from_sph_harm()
         
@@ -191,7 +191,8 @@ class SphericalModel(object):
             S2 = self.sh.synth(ylm)
             Sq_pos[iq] = S2-S2.min()
 
-        self.Sq = Sq_pos.copy()
+        self.Sq_original = self.S_q.copy()
+        self.S_q = Sq_pos.copy()
 
     def _sph_harm_project( self ):
         """
@@ -201,7 +202,7 @@ class SphericalModel(object):
         self.all_slm = np.zeros((self.n_q, int((self.lmax+2)*(self.lmax+1)/2) ) , dtype=np.complex128)
 
         for i in range( self.n_q ):
-            self.all_slm[i,:] = self.sh.analys( self.S_q[i].reshape( self.n_theta, self.n_phi ) )
+            self.all_slm[i,:] = self.sh.analys( self.S_q[i] )
 
         # sum slm to get cl
         # is this necessary? lists are very inefficient data structures, Let try without it first
@@ -212,13 +213,17 @@ class SphericalModel(object):
         computes legengre polynomial coefficients from spherical harmonic coefficients
         """
 
-        self.cl = np.zeros(( self.lmax+1, self.n_q, self.n_q), dtype = np.complex128)
+        self.cl = np.zeros(( self.lmax+1, self.n_q, self.n_q), dtype = float)
         for iq in range( self.n_q ):
             for jq in range( self.n_q ):
                 for ll in range( self.lmax+1 ):
                     self.cl[ll, iq, jq] = np.sum( np.conjugate( self.all_slm[iq][ self.sh.l==ll]) \
                         * self.all_slm[jq][self.sh.l==ll]) * 2.0 \
-                    - np.conjugate( self.all_slm[iq][self.sh.idx(ll,0)] ) * all_slm[jq][self.sh.idx(ll,0)]
+                    - np.conjugate( self.all_slm[iq][self.sh.idx(ll,0)] ) * self.all_slm[jq][self.sh.idx(ll,0)]
+        try:
+            assert ( np.all ( np.isclose( np.imag(self.cl), 0) ) )
+        except:
+            print ( "WARNING: Non-zero imaginary values occurred in legendre polynomial coefficients (cl)" )
 
     def _sph_coefs_to_corr( self ):
         """
