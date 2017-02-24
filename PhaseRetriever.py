@@ -15,7 +15,7 @@ class PhaseRetriever(object):
         q_values,
         lmax, n_theta, n_phi,
         corr = None, cospsi = None,
-        ref_SphModel = None,
+        ref_SphModel = None, auto_only = False,
         bark=False):
         
         # q values correponding to correlations, in ascending order!!!
@@ -37,9 +37,12 @@ class PhaseRetriever(object):
             self.corr = self.ref_SphModel.corr
             self.cospsi = self.ref_SphModel.cospsi
 
-            self.cl = self.ref_SphModel.cl
-            self.auto_only = False
-
+            self.auto_only = auto_only
+            if auto_only:
+                self.cl = np.zeros_like(self.ref_SphModel.cl)
+                self.cl[:,range(self.n_q),range(self.n_q)] = self.ref_SphModel.cl[:,range(self.n_q),range(self.n_q)]
+            else:
+                self.cl = self.ref_SphModel.cl
         else:
 
             if len(corr.shape) == 2:
@@ -127,25 +130,45 @@ class PhaseRetriever(object):
                 slm_guess = self.sh.analys( self.I_guess[q_idx])
                 self.all_slm_guess[q_idx] = slm_guess
             
-            for q_idx in range(self.n_q):
-                if self.auto_only:
-                    pass
-                else:
+            if self.auto_only:
+
+                self._impose_auto_corr()
+
+                for q_idx in range( self.n_q ):
+                    
+                    self.I_guess[q_idx] = self.sh.synth( self.all_slm_guess[q_idx] )
+
+                    # impose positivity
+                    update_idx = self.I_guess[q_idx] < 0
+                    self.I_guess[q_idx][update_idx] = 0
+                    
+                    try:
+                        this_mask = self.masks[q_idx]
+                        self.I_guess[q_idx, this_mask] = self.ref_SphModel.S_q[q_idx, this_mask]
+                    except AttributeError:
+                        # there is no mask to apply
+                        pass
+#         
+                    
+            
+            else:
+                for q_idx in range(self.n_q):
+                    
                     self._impose_cross_corr()
-                
-                self.I_guess[q_idx] = self.sh.synth( self.all_slm_guess[q_idx] )
+                    
+                    self.I_guess[q_idx] = self.sh.synth( self.all_slm_guess[q_idx] )
 
-                # impose positivity
-                update_idx = self.I_guess[q_idx]<0
-                self.I_guess[q_idx][update_idx] = 0
+                    # impose positivity
+                    update_idx = self.I_guess[q_idx]<0
+                    self.I_guess[q_idx][update_idx] = 0
 
-                # impose mask iffmasks exist
-                try:
-                    this_mask = self.masks[q_idx]
-                    self.I_guess[q_idx, this_mask] = self.ref_SphModel.S_q[q_idx, this_mask]
-                except AttributeError:
-                    # there is no mask to apply
-                    pass
+                    # impose mask iffmasks exist
+                    try:
+                        this_mask = self.masks[q_idx]
+                        self.I_guess[q_idx, this_mask] = self.ref_SphModel.S_q[q_idx, this_mask]
+                    except AttributeError:
+                        # there is no mask to apply
+                        pass
   
 
            
@@ -311,6 +334,33 @@ class PhaseRetriever(object):
             
             for qq in range( self.n_q ):
                 for m in range( l_test+1 ):
+                    self.all_slm_guess[qq][self.sh.idx(l_test,m)] = Sl_guess[qq][m+l_test]
+
+    def _impose_auto_corr( self ):
+        """
+        impose constraints set by the correlations, use this if there is cross-correlations data
+        """
+        
+        for l_test in range( self.lmax+1 ):
+
+            Sl = np.zeros(( self.n_q, 2*l_test+1 ), dtype = np.complex)
+            
+            for qq in range( self.n_q):
+                Sl[qq,l_test:] = self.all_slm_guess[qq][self.sh.l == l_test]
+                Sl[qq, :l_test] = np.conjugate(self.all_slm_guess[qq][self.sh.l==l_test][1:][::-1])
+            
+            Sl2_diag = np.diag(np.sqrt(1.0/np.sum(np.abs(Sl)**2, axis =1) ) )
+            
+            Sl_guess = Sl2_diag.dot( np.sqrt( self.cl[l_test] ) ).dot(Sl)
+            try:
+                assert( np.isclose( np.diag( np.sum( np.abs( Sl_guess )**2, axis =1)), 
+                    self.cl[l_test]).all())
+
+            except AssertionError:
+                print ("Warning! Large numerical errors in autocorrelation-only procrustes problem")
+                
+            for qq in range(self.n_q):
+                for m in range(l_test+1):
                     self.all_slm_guess[qq][self.sh.idx(l_test,m)] = Sl_guess[qq][m+l_test]
 
     
