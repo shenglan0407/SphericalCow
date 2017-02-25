@@ -238,15 +238,15 @@ class SphericalModel(object):
     
         for i in range(self.n_q):
             for j in range(i, self.n_q):
-                coefs = []
+                coefs = self.cl[:,i,j]
     #             even_coefs = Cl[:int(Lmax/2),i,j]
-                even_coefs= self.cl[::2,i,j]
-                for idx in range(even_coefs.size * 2):
-                    if idx%2 ==0:
-                        coefs.append(even_coefs[idx/2])
-                    else:
-                        coefs.append(0)
-                coefs = np.array(coefs)
+                # even_coefs= self.cl[::2,i,j]
+                # for idx in range(even_coefs.size * 2):
+                #     if idx%2 ==0:
+                #         coefs.append(even_coefs[idx/2])
+                #     else:
+                #         coefs.append(0)
+                # coefs = np.array(coefs)
             
                 self.corr[i,j,:] = legval( self.cospsi, coefs )
                 self.corr[j,i,:] = self.corr[i,j,:]  # copy it to the lower triangle too

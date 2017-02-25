@@ -1,8 +1,13 @@
 # class that takes correlations and try to solve the hyper phase retrieval problem.
-from numpy.polynomial.legendre import legval
+
 import numpy as np
 import numpy.linalg as LA
 import shtns
+
+from numpy.polynomial.legendre import legval
+from numpy.polynomial.legendre import leggauss
+
+from scipy.interpolate import splev,splint,splrep
 
 import matplotlib.pyplot as plt
 
@@ -213,45 +218,56 @@ class PhaseRetriever(object):
 ##################
 # Legendre projection
 ##################
+
+
     def _compute_legendre_projection( self ):
-        
-        if len(self.corr.shape) == 3:
-            self.cl = np.zeros( ( self.lmax + 1, self.n_q, self.n_q ) )
-            for i in range(self.n_q):
+        # define gaussian quadrature, the points between -1, 1 and the weights
+        xnew, ws = leggauss( self.cospsi.shape[-1] )
+
+        # interpolate
+        self.cl = np.zeros( ( self.lmax + 1, self.n_q, self.n_q ) )
+        for i in range(self.n_q):
+            if self.auto_only:
+                signal = self.corr[i,:]
+                signal_interp = self._interpolate_corr(self.cospsi[i,:],
+                                                      xnew, signal)
+                c = self._leg_proj_legguass( xnew, signal_interp, ws)
+                self.cl[:,i,i] = c
+
+            else:
                 for j in range(i, self.n_q):
-                    c = self._leg_coefs( self.cospsi[i, j, :], 
-                    self.corr[i,j,:] )
+                    signal = self.corr[i,j,:]
+                    signal_interp = self._interpolate_corr(self.cospsi[i,j,:],
+                                                          xnew, signal)
+                    c = self._leg_proj_legguass( xnew, signal_interp, ws)
                     self.cl[:,i,j] = c
                     self.cl[:,j,i] = c  # copy it to the lower triangle too
-        
-        elif len(self.corr.shape) == 2:
-            self.cl = np.zeros( ( self.lmax + 1, self.n_q ) )
-            for i in range(self.n_q):
-                c = self._leg_coefs( self.cospsi[i, :], 
-                    self.corr[i,:] )
-                self.cl[:,i] = c
+        #
 
-    def _leg_coefs(self, x, y):
-        
-        ind = np.argsort(x)
-        y = y[ind]
-        x = np.sort(x)
-        dx = x[1:] - x[:-1]
-        
-        leg_coefs = np.zeros( self.lmax + 1 )
-        for l in range( 0, self.lmax+1, 2 ):
-            cc = np.zeros( l+1 )
-            cc[-1] = 1
-            
-            pp = legval( x, c=cc )
-            # may beed a better way to do numerical integration?
-            coef = np.sum( pp[:-1] * y[:-1] * dx )
-            coef *= (2*l+1)/2.
-            
-            leg_coefs[l] = coef
-        
-        return leg_coefs
+    def _interpolate_corr( self, xold, xnew, signal ):
 
+        # compute the bspline representation of the signal
+        # k =5 gives the highest order
+        tck = splrep(xold,signal,k=5,s=0)
+        signal_interp = splev(xnew,tck, der=0)
+
+        return signal_interp
+    
+    def _leg_proj_legguass(self, x,signal,weights):
+        """projection into legendre polynomial using gauss-legendre polynomial
+        """
+        coefs = np.zeros(self.lmax + 1)
+        weights_sum = np.sum(weights)
+        
+        for l in range(self.lmax + 1):
+            if l%2==0:
+                cc = np.zeros(l+1)
+                cc[l] = 1
+                coefs[l] = np.sum( weights*legval(x,cc)*signal) / weights_sum*(2*l+1)
+
+        return coefs
+
+ 
 
 ##################
 # initial guess
@@ -410,97 +426,3 @@ class PhaseRetriever(object):
         
         return x
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-##################Old cod probably not needed##########################
-
-
-#     def _error_reduction ( self ):
-    
-#         Il_input = self.Il_guess
-#         losses = []
-    
-#         for iter in range(num_iter):
-#         if iter%1000 ==0:
-#             print "completed %d itertations"%(int(iter/1000))
-#         assert ( len(S_q_input.shape) == 2)
-#         all_slm_input = np.zeros((S_q_input.shape[0], int((sh_deca.lmax+2)*(sh_deca.lmax+1)/2) ) , dtype=np.complex)
-    
-#         for i in range( S_q.shape[0] ):
-#             all_slm_input[i,:] = sh_deca.analys( S_q_input[i].reshape(sh_deca.nlat,sh_deca.nphi) )
-
-#         Il_input = hf.Il_matrices(sh_deca, all_slm_input, lmax = sh_deca.lmax)
-
-#         # update using cl
-#         Il_output = update_Il_auto ( Il_input, cl_deca )
-#     #     Il_output = update_Il( Il_input, cl_deca)
-#         # inverse transform to S_new
-#         S_q_output = np.array( np.real (hf.Il_to_Sq( Il_output, sh_deca ) ), dtype = np.float64)
-#         # apply hydrid input output using only positivity
-#     #     
-#         S_q_output = S_q_output.reshape( S_q_input.shape[0], sh_deca.nlat*sh_deca.nphi )
-#         S_q_output = normalize_by_max( S_q_output )
-#         # print S_q_output.shape 
-#         # print S_q_input.shape
-#         assert ( S_q_output.shape == S_q_input.shape )
-#         # positivity support
-#         update_indices1 = np.where( S_q_output < 0 )
-#         update_indices2 = np.where( S_q_output >= 0 )
-
-#         # update input for next iteration
-#         beta = 0.05
-#         S_q_input[update_indices1] = S_q_input[update_indices1]- beta * S_q_output[update_indices1]
-#         S_q_input[update_indices2] = S_q_output[update_indices2]
-    
-    
-#     #     S_q_input = np.array( np.real( pos_support(S_q_output) ), dtype = np.float64)
-#         S_q_input = normalize_by_max(S_q_input)
-#         # compute loss
-#         loss = np.sum( (S_q_output - S_q_input )**2.0 )
-#         losses.append(loss)
-    
-#         pass
-
-#     def _grad_descent( self ):
-#         pass
-
-#     def _hybrid_input_output( self ):
-#         pass
-
-
-
-
-# ##################
-# # spherical space constraints
-# ##################
-
-
-
-
-# ##################
-# # q-space constraints
-# ##################
-    
-    
-    
