@@ -8,8 +8,11 @@ from numpy.polynomial.legendre import legval
 from numpy.polynomial.legendre import leggauss
 
 from scipy.interpolate import splev,splint,splrep
+from scipy.signal import correlate2d
 
 import matplotlib.pyplot as plt
+
+import h5py
 
 class PhaseRetriever(object):
     """
@@ -38,7 +41,7 @@ class PhaseRetriever(object):
         self.sh = shtns.sht(lmax)
         self.sh.set_grid( n_theta, n_phi )
         
-        if corr == None:
+        if corr is None:
             self.corr = self.ref_SphModel.corr
             self.cospsi = self.ref_SphModel.cospsi
 
@@ -99,19 +102,43 @@ class PhaseRetriever(object):
               .:::::; .:::##::::::::::::::::\n\
               ::::::; :::::::::::::::::##::\n\
               The Phase Retrieving Golden Retriever Puppy!")
+
+        
+        def save(self, save_filename):
+            ff = h5py.File(save_filename,'a')
+            ff.create_dataset('intensity', data = self.I_guess)
+            ff.create_dataset('slm',data = self.all_slm_guess)
+
+            ff.create_dataset('qvalues', data = self.q_values)
+            ff.create_dataset('leg_coefs', data = self.cl)
+            ff.create_dataset('corr', data = self.corr)
+
+            ff.create_dataset('deltas', data  = self.deltas)
+            ff.create_dataset('cospsi', data = self.cospsi)
+            ff.create_dataset('lmax', data = self.lmax)
+
+            ff.close()
+
     
 ##################
 # Fit
 ##################
     def fit(self, num_iter,
+        initial_I_guess = None,
         plt_init = False,
-        smooth = False):
+        smooth = False,
+        beta = 0.0,
+        alpha = 1.0):
         
         self.smooth = smooth
         if smooth:
             self._define_smoothness_operators()
+        
+        if initial_I_guess is None:
+            self._initiate_guess_int()
+        else:
+            self.I_guess = initial_I_guess.copy()
 
-        self._initiate_guess_int()
         if plt_init:
             plt.figure()
             for qq in range( self.n_q ):
@@ -121,7 +148,8 @@ class PhaseRetriever(object):
             plt.show()
 
         deltas = []
-        similarity_to_answer=[]
+        similarity_to_answer = []
+        correlation_to_model = []
         self.all_slm_guess = np.zeros( ( self.n_q, ( self.lmax**2 + 3*self.lmax+2)/2 )
                         , dtype=np.complex128 )
 
@@ -161,11 +189,13 @@ class PhaseRetriever(object):
                     
                     self._impose_cross_corr()
                     
-                    self.I_guess[q_idx] = self.sh.synth( self.all_slm_guess[q_idx] )
+                    self.I_guess[q_idx] = alpha * self.sh.synth( self.all_slm_guess[q_idx] )\
+                    + (1.0-alpha) * I_guess_old[q_idx]
 
                     # impose positivity
                     update_idx = self.I_guess[q_idx]<0
-                    self.I_guess[q_idx][update_idx] = 0
+                    # soft positivity is beta >0
+                    self.I_guess[q_idx][update_idx] *= beta 
 
                     # impose mask iffmasks exist
                     try:
@@ -175,9 +205,10 @@ class PhaseRetriever(object):
                         # there is no mask to apply
                         pass
   
-
+            # if ii > 20:
+            #     self.smooth = False
            
-            self.I_guess = self.impose_fridel( self.I_guess )
+            # self.I_guess = self.impose_fridel( self.I_guess )
 
             # a better way to evaluate fit to reference model is to use correlation
             # will implement this later
@@ -189,11 +220,17 @@ class PhaseRetriever(object):
             self.ref_SphModel.S_q.mean(axis=(1,2))
             similarity_to_answer.append(dd)
 
+            if ii%10 == 0:
+                correlation = [ np.mean(self._correlate_results( self.I_guess[jj].copy(), 
+                                        self.ref_SphModel.S_q[jj].copy() ) ) \
+                              for jj in range(self.n_q)]
+                correlation_to_model.append( correlation )
+
         deltas=np.array(deltas)
-        similarity_to_answer=np.array(similarity_to_answer)
+        similarity_to_answer = np.array(similarity_to_answer)
+        correlation_to_model = np.array(correlation_to_model)
 
-
-        return self.I_guess, deltas, similarity_to_answer
+        return self.I_guess, deltas, similarity_to_answer, correlation_to_model
 
     def _define_smoothness_operators(self):
         # define the differentiation operator
@@ -213,7 +250,13 @@ class PhaseRetriever(object):
                 Sl_correct[ qq, :l_test] = \
                 np.conjugate( self.ref_SphModel.all_slm[qq][ self.sh.l==l_test][1:][::-1])
             Dl = self.diff_op.dot(Sl_correct)
-            self.Dl_list.append(Dl)      
+            self.Dl_list.append(Dl)   
+
+    def _correlate_results( self, x, y):
+        x -= x.mean()
+        y -= y.mean()
+        
+        return np.mean(x*y)/np.sqrt(x.var()*y.var())
 
 ##################
 # Legendre projection
@@ -292,8 +335,9 @@ class PhaseRetriever(object):
             #if there is no reference intensity, then just guess randomly
             I_guess = np.random.rand( self.n_q, self.n_theta, self.n_phi )* 1e6
 
+        self.I_guess = I_guess
         # impose friedel symmetry on the initial guess
-        self.I_guess = self.impose_fridel(I_guess)
+        # self.I_guess = self.impose_fridel(I_guess)
 
 
 ##################
@@ -317,6 +361,7 @@ class PhaseRetriever(object):
         for l_test in range( self.lmax+1 ):    
 
             ll,v = LA.eig( self.cl[l_test] )
+            eig_signs = np.sign(ll)
 
             Ul = np.zeros( (2*l_test+1, 2*l_test+1), dtype=np.complex )
             Ll = np.zeros( (2*l_test+1, 2*l_test+1), dtype = float )
@@ -324,8 +369,8 @@ class PhaseRetriever(object):
 
             for ii in range( self.n_q ):
                 if ii < Ll.shape[0]:
-                    Ll[ii,ii] = np.sqrt(np.real(ll[ii]))
-                    Vl[:,ii] = v[:,ii]
+                    Ll[ii,ii] = np.sqrt(np.real( eig_signs[ii]*ll[ii]))
+                    Vl[:,ii] = v[:,ii] *eig_signs[ii]
 
             Sl = np.zeros( ( self.n_q, 2*l_test+1), dtype = np.complex)
             # fill the Sl matrix for this iteration
@@ -344,6 +389,18 @@ class PhaseRetriever(object):
             else:
                 M = np.dot(Ll, np.conjugate(Vl).T ).dot(Sl)
             
+            if np.isnan(M).any():
+                print "nan %d"%l_test
+                if np.isnan(Ll).any():
+                    print 'Ll'
+                if np.isnan(Vl).any():
+                    print 'Vl'
+                if np.isnan(Sl).any():
+                    print 'Sl'
+            elif np.isinf(M).any():
+                print "inf %d"%l_test
+            # M = np.nan_to_num(M)
+
             u,s,v = LA.svd(M, full_matrices=False)
             Ul = u.dot(v)
             Sl_guess = np.dot(Vl,Ll).dot(Ul)
