@@ -7,6 +7,7 @@ import os
 from thor.scatter import simulate_shot
 
 import shtns
+import h5py
 
 
 class SphericalModel(object):
@@ -94,6 +95,19 @@ class SphericalModel(object):
                         ** ")    
                         
 
+    def save(self, save_filename):
+        ff = h5py.File(save_filename,'a')
+        ff.create_dataset('intensity', data = self.S_q)
+        ff.create_dataset('intensity_original', data = self.Sq_original)
+        ff.create_dataset('slm',data = self.all_slm)
+
+        ff.create_dataset('qvalues', data = self.q_values)
+        ff.create_dataset('leg_coefs', data = self.cl)
+        ff.create_dataset('corr', data = self.corr)
+        ff.create_dataset('cospsi', data = self.cospsi)
+        ff.create_dataset('lmax', data = self.lmax)
+
+        ff.close()
     
     def simulate( self, q_values, 
         n_theta, n_phi, 
