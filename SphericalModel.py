@@ -42,7 +42,7 @@ class SphericalModel(object):
     """
 
     
-    def __init__( self, traj, moo = False ):
+    def __init__( self, traj=None, moo = False ):
         """
         Generate an instance of the SphericalModel class.
         
@@ -51,8 +51,10 @@ class SphericalModel(object):
         traj : mdtraj object, with only one frame to represent one model
         
         """
-        
-        self.model = traj[0]
+        if traj is None:
+            # just initiate an empty thing
+        else:
+            self.model = traj[0]
         
         if moo:
             print("\
@@ -108,6 +110,23 @@ class SphericalModel(object):
         ff.create_dataset('lmax', data = self.lmax)
 
         ff.close()
+
+    
+    def load(self, filename):
+        ff = h5py.File(filename, 'r')
+        self.S_q = ff['intensity'].values
+        self.n_theta = self.S_q.shape[1]
+        self.n_phi = self.S_q.shape[2]
+
+        self.
+        self.Sq_original = ff['intensity_original'].values
+        
+        self.all_slm =ff['slm']
+        # finish writing load function
+
+    def slice_by_qvalues(self, q_values, inplace = True):
+        # write slice function
+        qidx = np.where
     
     def simulate( self, q_values, 
         n_theta, n_phi, 
