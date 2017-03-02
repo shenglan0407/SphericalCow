@@ -9,6 +9,8 @@ from thor.scatter import simulate_shot
 import shtns
 import h5py
 
+import copy
+
 
 class SphericalModel(object):
     """
@@ -42,7 +44,9 @@ class SphericalModel(object):
     """
 
     
-    def __init__( self, traj=None, moo = False ):
+    def __init__( self, traj=None, 
+        SpModel_path = None,
+        moo = False ):
         """
         Generate an instance of the SphericalModel class.
         
@@ -51,8 +55,10 @@ class SphericalModel(object):
         traj : mdtraj object, with only one frame to represent one model
         
         """
+        
         if traj is None:
-            # just initiate an empty thing
+            # load from path
+            self.load( SpModel_path )
         else:
             self.model = traj[0]
         
@@ -114,19 +120,68 @@ class SphericalModel(object):
     
     def load(self, filename):
         ff = h5py.File(filename, 'r')
-        self.S_q = ff['intensity'].values
+        self.S_q = ff['intensity'].value
         self.n_theta = self.S_q.shape[1]
         self.n_phi = self.S_q.shape[2]
 
-        self.
-        self.Sq_original = ff['intensity_original'].values
-        
-        self.all_slm =ff['slm']
-        # finish writing load function
+        self.lmax = ff['lmax'].value
+        self.sh = shtns.sht(self.lmax)
+        # generate the shtns object
+        self.sh.set_grid( self.n_theta, self.n_phi )
 
+        self.Sq_original = ff['intensity_original'].value
+        
+        self.all_slm =ff['slm'].value
+        self.corr = ff['corr'].value
+        self.cl = ff['leg_coefs'].value
+        self.cospsi = ff['cospsi'].value
+        self.n_psi = self.cospsi.size
+
+        self.q_values = ff['qvalues'].value
+        self.n_q = self.q_values.size
+
+
+        ff.close()
+        
     def slice_by_qvalues(self, q_values, inplace = True):
-        # write slice function
-        qidx = np.where
+        """
+        qvalues: the q values you want to keep in the sliced model
+        """
+        if inplace:
+            obj_to_slice = self
+        else:
+            obj_to_slice = copy.copy( self )
+        
+        q_mask = np.array( [ np.isclose(qq, q_values).any() for qq in obj_to_slice.q_values] )
+        q_idx = np.where(q_mask == True)[0]
+
+        obj_to_slice.q_values = self.q_values[q_mask]
+        obj_to_slice.n_q = q_idx.size
+
+        obj_to_slice.S_q = self.S_q[q_mask, :, :]
+        obj_to_slice.Sq_original = self.Sq_original[q_mask,:,:]
+
+        obj_to_slice.all_slm = self.all_slm[q_mask,:]
+        old_corr = self.corr.copy()
+        old_cl = self.cl.copy()
+
+        obj_to_slice.corr = np.zeros( (obj_to_slice.n_q, obj_to_slice.n_q, 
+            obj_to_slice.n_psi ) )
+        obj_to_slice.cl = np.zeros( (obj_to_slice.lmax+1, obj_to_slice.n_q,
+         obj_to_slice.n_q) )
+
+        for qi in range(obj_to_slice.n_q):
+            for qj in range(qi, obj_to_slice.n_q):
+                old_qi = q_idx[qi]
+                old_qj = q_idx[qj]
+                obj_to_slice.corr[qi,qj,:] = old_corr[old_qi,old_qj,:]
+                obj_to_slice.corr[qj,qi,:] = old_corr[old_qj,old_qi,:]
+
+                obj_to_slice.cl[:,qi,qj] = old_cl[:, old_qi,old_qj]
+                obj_to_slice.cl[:,qj,qi] = old_cl[:, old_qj,old_qi]
+
+        if not inplace:
+            return obj_to_slice
     
     def simulate( self, q_values, 
         n_theta, n_phi, 
