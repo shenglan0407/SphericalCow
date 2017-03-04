@@ -128,7 +128,8 @@ class PhaseRetriever(object):
         plt_init = False,
         smooth = False,
         beta = 0.0,
-        alpha = 1.0):
+        alpha = 1.0,
+        zeta = 0.0):
         
         self.smooth = smooth
         if smooth:
@@ -187,7 +188,7 @@ class PhaseRetriever(object):
             else:
                 for q_idx in range(self.n_q):
                     
-                    self._impose_cross_corr()
+                    self._impose_cross_corr( zeta = zeta ) 
                     
                     self.I_guess[q_idx] = alpha * self.sh.synth( self.all_slm_guess[q_idx] )\
                     + (1.0-alpha) * I_guess_old[q_idx]
@@ -354,7 +355,7 @@ class PhaseRetriever(object):
 
 
 
-    def _impose_cross_corr( self ):
+    def _impose_cross_corr( self, zeta = 0.0):
         """
         impose constraints set by the correlations, use this if there is cross-correlations data
         """
@@ -385,7 +386,8 @@ class PhaseRetriever(object):
                 Dl = self.Dl_list[l_test]
                 # Dl = np.repeat( Dl.mean(axis = 1), l_test*2+1).reshape( self.n_q, l_test*2+1)
 
-                M = np.dot(Ll, np.conjugate(Vl).T ).dot(Sl) + (gamma.T).dot(Dl)
+                M = (1.0-zeta) * np.dot(Ll, np.conjugate(Vl).T ).dot(Sl) + \
+                zeta * (gamma.T).dot(Dl)
             else:
                 M = np.dot(Ll, np.conjugate(Vl).T ).dot(Sl)
             
