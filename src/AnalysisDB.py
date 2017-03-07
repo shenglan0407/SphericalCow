@@ -20,6 +20,9 @@ class AnalysisDB(object):
 		self.model_full_path = model_full_path 
 		self.model_guess_path = model_guess_path
 
+		self.model_full = SphericalModel( SpModel_path = self.model_full_path )
+		self.model_guess = SphericalModel( SpModel_path = self.model_guess_path )
+
 	def makeDatabase(self, q_values,
 		num_iter, lmax,
 		save_path,
@@ -38,10 +41,26 @@ class AnalysisDB(object):
 		traj_full = mdtraj.load_pdb( self.traj_full_path )
 		traj_guess = mdtraj.load_pdb( self.traj_guess_path )
 
-		self.model_full = SphericalModel( SpModel_path = self.model_full_path )
-		self.model_guess = SphericalModel( SpModel_path = self.model_guess_path )
-		self.model_full.slice_by_qvalues( q_values=self.q_values, inplace=True )
-		self.model_guess.slice_by_qvalues( q_values=self.q_values, inplace=True)
+		if type(q_values) == str and q_values == 'all':
+			try:
+				assert( np.isclose( self.model_guess.q_values, 
+					self.model_full.q_values ).all() )
+			except AssertionError:
+				print( "q_values of the model_full and model_guess do not match. \
+					Cannot use all q_values." )
+				return
+			self.q_values = self.model_full.q_values
+			# do nothing and do not slice the models
+		else: 
+			self.model_full.slice_by_qvalues( q_values=self.q_values, inplace=True )
+			self.model_guess.slice_by_qvalues( q_values=self.q_values, inplace=True)
+			try:
+				assert( np.isclose( self.model_guess.q_values, 
+					self.model_full.q_values ).all() )
+			except AssertionError:
+				print( "q_values of the model_full and model_guess do not match. \
+					Failed!!!" )
+				return
 
 		# retriever the phases
 		self._retrieve_phases()
