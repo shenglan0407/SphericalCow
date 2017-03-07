@@ -182,6 +182,26 @@ class SphericalModel(object):
 
         if not inplace:
             return obj_to_slice
+
+    def slice_by_lmax( self, new_lmax, inplace = False):
+        
+        if inplace:
+            obj_to_slice = self
+        else:
+            obj_to_slice = copy.copy( self )
+
+        obj_to_slice.lmax = new_lmax
+        new_Sq, new_slm, new_sh_obj = obj_to_slice._compute_Sq_with_reduced_lmax( new_lmax )
+
+        obj_to_slice.S_q = new_Sq
+        obj_to_slice.all_slm = new_slm
+        obj_to_slice.sh = new_sh_obj
+
+        obj_to_slice._leg_coefs_from_sph_harm()
+        obj_to_slice._sph_coefs_to_corr()
+
+        if not inplace:
+            return obj_to_slice
     
     def simulate( self, q_values, 
         n_theta, n_phi, 
@@ -262,6 +282,36 @@ class SphericalModel(object):
             self.S_q[i,:] = simulate_shot(self.model, 1, q*qxyz, dont_rotate=dont_rotate, force_no_gpu=True)
         self.S_q = self.S_q.reshape( self.n_q, self.n_theta, self.n_phi )
     
+    def _compute_Sq_with_reduced_lmax( self, new_lmax):
+        """
+        model: SphericalModel object
+        pr: PhaseRetriver object
+        """
+        new_sh_obj = shtns.sht(new_lmax)
+
+        old_sh_obj = self.sh
+        
+        new_S_q = np.zeros_like( self.S_q )
+        
+        old_all_slm = self.all_slm
+        
+        new_sh_obj.set_grid( self.n_theta, self.n_phi )
+        n_q = self.n_q
+        new_all_slm = np.zeros((self.n_q, int((new_lmax+2)*(new_lmax+1)/2) ) 
+            , dtype=np.complex128)
+
+        for qid in range(n_q):
+            new_slm = new_sh_obj.spec_array()
+            
+            for lid in range(new_lmax+1):
+                for mid in range(lid+1):
+                    new_slm[new_sh_obj.idx(lid, mid)] = old_all_slm[qid][old_sh_obj.idx(lid,mid)]
+            new_S_q[qid] = new_sh_obj.synth(new_slm)
+            new_all_slm[qid, :] = new_slm
+
+        return new_S_q, new_all_slm, new_sh_obj
+
+
     def _make_Sq_positive( self ):
         """
         Transform Sq into spherical harmonics and performes an inverse transformation. 
