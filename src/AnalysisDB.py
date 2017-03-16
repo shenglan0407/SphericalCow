@@ -69,7 +69,10 @@ class AnalysisDB(object):
 		self._compare_full_guess()
 
 		# compute RMSD
-		self.rmsd = mdtraj.rmsd( traj_full, traj_guess, frame = 0)
+		try:
+			self.rmsd = mdtraj.rmsd( traj_full, traj_guess, frame = 0)
+		except ValueError:
+			self.rmsd = 0
 
 		# save
 		self._saveDB( save_path )
