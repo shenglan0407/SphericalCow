@@ -1,6 +1,8 @@
 from PhaseRetriever import PhaseRetriever
 import numpy as np
 
+from numpy.polynomial.legendre import legval
+from numpy.polynomial.legendre import leggauss
 
 
 class MixRetriever(PhaseRetriever):
@@ -24,6 +26,35 @@ class MixRetriever(PhaseRetriever):
         except AssertionError:
             q_values = np.array(sorted(q_values))
 
+        corr, cospsi = self._check_cospsi( corr, cospsi )
+
+        PhaseRetriever.__init__(self,
+        q_values,lmax, n_theta, n_phi,
+        corr = corr, cospsi = cospsi,
+        **kwargs)
+
+        # normalize leg coefs by the maximum in each q
+        self.cl = self.norm_leg_coefs( self.cl )
+
+        # components of the mix, with known structures therefore known cls
+        self.known_cl = {}
+        # components of the mix, with unknown structures needed to be guessed
+        self.guess_cl = {}
+
+        if bark:
+            print("\
+                 ...... //^ ^\\\ \n \
+                ......(/(_o_)\) \n \
+                ......_/''*''\_ \n \
+                .....(,,,)^(,,,) \n \
+                The Mixed Retriever puppy is happy to see you!")
+    
+    def _check_cospsi( self, corr, cospsi):
+        """
+        checks if cospsi is acsending
+        if not, sort it and corr accordingly
+        """
+
         if len(cospsi.shape) == 1:
             try:
                 assert( (sorted(cospsi)==cospsi).all() )
@@ -41,25 +72,58 @@ class MixRetriever(PhaseRetriever):
                     cospsi[idx] = sorted(cospsi[idx])
                     corr[idx] = corr[idx, sort_ind]
 
-        PhaseRetriever.__init__(self,
-        q_values,lmax, n_theta, n_phi,
-        corr = corr, cospsi = cospsi,
-        **kwargs)
+        return corr, cospsi
 
+    def norm_leg_coefs(sself, cl):
+        """
+        Normalize the leg coefs at each q by the max
+        """
+        new_cl = np.zeros_like( cl )
+        for i in range(cl.shape[1]):
+            for j in range(cl.shape[2]):
+                if (cl[:,i,j]).max() >0:
+                    new_cl[:,i,j] = cl[:,i,j]/(cl[:,i,j]).max()
 
-        if bark:
-            print("\
-                 ...... //^ ^\\\ \n \
-                ......(/(_o_)\) \n \
-                ......_/''*''\_ \n \
-                .....(,,,)^(,,,) \n \
-                The Mixed Retriever puppy is happy to see you!")
+        return new_cl
 
 
     #########################
     # mix component leg coefs
     #########################
+    def add_known_structure(self, name, corr, cospsi):
+        """
+        add leg coefs of a known component 
+        """
+        corr, cospsi = self._check_cospsi( corr, cospsi )
+        cl = self._compute_component_legendre_projection(corr, cospsi)
+        self.known_cl.update({name: cl})
 
+
+    def _compute_component_legendre_projection( self, corr, cospsi ):
+        # define gaussian quadrature, the points between -1, 1 and the weights
+        xnew, ws = leggauss( self.cospsi.shape[-1] )
+
+        # interpolate
+        cl = np.zeros( ( self.lmax + 1, self.n_q, self.n_q ) )
+        for i in range(self.n_q):
+            if self.auto_only:
+                signal = corr[i,:]
+                signal_interp = self._interpolate_corr(cospsi[i,:],
+                                                      xnew, signal)
+                c = self._leg_proj_legguass( xnew, signal_interp, ws)
+                cl[:,i,i] = c
+
+            else:
+                for j in range(i, self.n_q):
+                    signal = corr[i,j,:]
+                    signal_interp = self._interpolate_corr(cospsi[i,j,:],
+                                                          xnew, signal)
+                    c = self._leg_proj_legguass( xnew, signal_interp, ws)
+                    cl[:,i,j] = c
+                    cl[:,j,i] = c  # copy it to the lower triangle too
+
+        cl = self.norm_leg_coefs( cl )
+        return cl
 
     #########################
     # fit for concentrations
