@@ -115,15 +115,14 @@ def test_sum_component( ):
     print("* Passed MixRetriever summing component test!")
 
 def test_fit1():
-    q_range = range(10)
     f_test = h5py.File('test_data/2rh1A_4ldlA_theoretical_test.hdf5','r')
 
-    s1 = f_test['2rh1'].value[q_range,q_range,:180]
-    s2 = f_test['4ldl'].value[q_range,q_range,:180]
-    mix = f_test['mix'].value[q_range,q_range,:180]
+    s1 = f_test['2rh1'].value
+    s2 = f_test['4ldl'].value
+    mix = f_test['mix'].value
 
-    qs = f_test['qvalues'].value[q_range]
-    cospsi = f_test['cospsi'].value[:180]
+    qs = f_test['qvalues'].value
+    cospsi = f_test['cospsi'].value
 
     Lmax = 10
     # # s2 = np.load('test_data/3p0gA-downsamp-infPhot-target-cxs.npy')[1:3,:90]
