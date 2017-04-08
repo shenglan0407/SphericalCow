@@ -8,6 +8,7 @@ from MixRetriever import MixRetriever
 from PhaseRetriever import PhaseRetriever
 
 import numpy as np
+import h5py
 
 def test_init():
     mix = np.load('test_data/2rh1A_3p0gA_infPhot_20mol_a0.40-cxs.npy')[:,:90]
@@ -113,6 +114,40 @@ def test_sum_component( ):
 
     print("* Passed MixRetriever summing component test!")
 
+def test_fit1():
+    q_range = range(10)
+    f_test = h5py.File('test_data/2rh1A_4ldlA_theoretical_test.hdf5','r')
+
+    s1 = f_test['2rh1'].value[q_range,q_range,:180]
+    s2 = f_test['4ldl'].value[q_range,q_range,:180]
+    mix = f_test['mix'].value[q_range,q_range,:180]
+
+    qs = f_test['qvalues'].value[q_range]
+    cospsi = f_test['cospsi'].value[:180]
+
+    Lmax = 10
+    # # s2 = np.load('test_data/3p0gA-downsamp-infPhot-target-cxs.npy')[1:3,:90]
+    # mix = np.load('test_data/2rh1A_3p0gA_infPhot_20mol_a0.40-cxs.npy')[:2,:90]
+
+    # qs = np.load('test_data/qvalue.npy')[:2]
+    # Lmax = 10
+    # k = 5.0677
+
+    # thetas = np.arcsin(qs/(2*k))
+    # phis = np.linspace(0,np.pi,mix.shape[-1], endpoint=True)
+    # cospsi = np.zeros( (qs.size, phis.size) )
+    # for idx in range(qs.size):
+    #     cospsi[idx] = np.sin(thetas[idx])**2 + np.cos(thetas[idx])**2 * np.cos(phis)
+    
+
+    mr = MixRetriever(qs.copy(), Lmax, mix.copy(), cospsi.copy())
+    mr.add_known_structure('4ldl', s2.copy(), cospsi.copy())
+    mr.add_known_structure('2rh1', s1.copy(), cospsi.copy())
+
+    mr.unmix( num_components = 2,
+        known_components = mr.known_cl.keys() )
+    print mr.guess_concentration
+
 def _compute_corr(x, y):
     x -= x.mean()
     y -= y.mean()
@@ -120,8 +155,9 @@ def _compute_corr(x, y):
     return np.mean(x*y)/np.sqrt(x.var()*y.var())
 
 if __name__=="__main__":
-    mr = test_init()
-    test_add_known_component( mr )
-    test_sum_component()
+    # mr = test_init()
+    # test_add_known_component( mr )
+    # test_sum_component()
+    test_fit1()
 
     
