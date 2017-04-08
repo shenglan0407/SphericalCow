@@ -4,6 +4,8 @@ import numpy as np
 from numpy.polynomial.legendre import legval
 from numpy.polynomial.legendre import leggauss
 
+from scipy.optimize import curve_fit
+
 
 class MixRetriever(PhaseRetriever):
     """
@@ -26,6 +28,14 @@ class MixRetriever(PhaseRetriever):
         except AssertionError:
             q_values = np.array(sorted(q_values))
 
+        try:
+            # currently only deal with auto corr
+            assert(len(corr.shape) == 2)
+        except AssertionError:
+            print ("ERROR: Current version of MixRetriever only deal with autocorr.\n \
+                corr needs to be 2d and num q by num phi.")
+            return
+
         corr, cospsi = self._check_cospsi( corr, cospsi )
 
         PhaseRetriever.__init__(self,
@@ -40,6 +50,8 @@ class MixRetriever(PhaseRetriever):
         self.known_cl = {}
         # components of the mix, with unknown structures needed to be guessed
         self.guess_cl = {}
+        # guess concentrations
+        self.guess_concentration = {}
 
         if bark:
             print("\
@@ -74,7 +86,7 @@ class MixRetriever(PhaseRetriever):
 
         return corr, cospsi
 
-    def norm_leg_coefs(sself, cl):
+    def norm_leg_coefs(self, cl):
         """
         Normalize the leg coefs at each q by the max
         """
@@ -94,9 +106,60 @@ class MixRetriever(PhaseRetriever):
         """
         add leg coefs of a known component 
         """
+        if len(cospsi.shape) == 1:
+            cospsi = np.array( [cospsi] * self.n_q )
+
         corr, cospsi = self._check_cospsi( corr, cospsi )
         cl = self._compute_component_legendre_projection(corr, cospsi)
         self.known_cl.update({name: cl})
+
+    def add_unknown_strcuture(self, name, cospsi = None,
+        corr = None, cl = None):
+        """
+        add an unknown structure, initial guess can be added as well
+        
+        name - str, name of the component
+
+        keyword args
+        cospsi - np.array, num q by num phi, default None
+        must be defined at the same time as corr
+
+        corr - np.array, num q by num phi , default None
+        must be defined at the same time as cospsi
+        
+        cl - np.array, lmax+1 by num q by num q, default None
+        leg coefs guess for an unknown component. 
+        Can be defined instead of cospsi and corr
+        """
+        if cospsi is not None:
+        # if cospsi and corr are both given, use them    
+            if corr is None:
+                pass
+            else:
+                if len(cospsi.shape) == 1:
+                    cospsi = np.array( [cospsi] * self.n_q )
+                try:
+                    assert(corr.shape[0] == self.n_q)
+                    assert(corr.shape[-1] == cospsi.shape[-1])
+                except AssertionError:
+                    print("EEROR: corr and cospsi shape mismatch")
+                    return
+
+                corr, cospsi = self._check_cospsi( corr, cospsi )
+                cl = self._compute_component_legendre_projection(corr, cospsi)
+                self.guess_cl.update({name: cl})
+        
+        elif cl is not None:
+        # if cl is given
+            try:
+                assert( cl.shape[0] == self.lmax+1)
+                assert( cl.shape[-1] == self.n_q)
+            except AssertionError:
+                print("ERORR: cl shape mismatch")
+
+            self.guess_cl.update( {name:cl} )
+
+
 
 
     def _compute_component_legendre_projection( self, corr, cospsi ):
@@ -124,10 +187,63 @@ class MixRetriever(PhaseRetriever):
 
         cl = self.norm_leg_coefs( cl )
         return cl
+    #########
+    # unmix
+    #########
+    def unmix(self, num_components,
+        known_components, 
+        unknown_components = []
+        ):
+        """
+        unmix self.corr into components
+
+        num_componets - int, number of components in the mixture
+        
+        known_components - list of str, names of components that have knonw structures
+
+        keyword args
+        unknown_components - list of str, name of components that have unknown structures
+        
+        """
+
+        assert(len(known_components)+len(unknown_components) == num_components)
+
+        if len(known_components) == num_components:
+            # this is the case where all the structures are known and we only need to fit for concentrations
+            assert( np.all( [name in self.known_cl.keys() for name in known_components] ) )
+
+            self._fit1()
+
+
+        else:
+            # now there are unknown components
+            pass
+
 
     #########################
     # fit for concentrations
     #########################
+    def _weighted_sum(self, X, *weights):
+        n_things = len(X)
+        sum = np.zeros_like( X[0] )
+        for ii in range(n_things-1):
+            sum +=  X[ii] * weights[ii] 
+        sum += X[-1] * (1.0 - np.sum(weights) )
+
+        return sum
+
+    def _fit1(self):
+        X = [ self.known_cl[k].flatten("c") for k in self.known_cl.keys()]
+        Y = self.cl.flatten("c")
+
+        p0 = [1.0/len( self.known_cl.keys() )] * (len( self.known_cl.keys() ) - 1 )
+        con, _  = curve_fit(self._weighted_sum, X, Y, p0=p0)
+
+        for idx, k in enumerate( self.known_cl.keys() ):
+            if idx < len(con):
+                self.guess_concentration.update( {k: con[idx] })
+            else:
+                self.guess_concentration.update( {k: (1.0 - np.sum(con)) })                
 
     ###########################
     # fit for unknown leg coefs
