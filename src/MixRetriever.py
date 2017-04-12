@@ -19,7 +19,7 @@ class MixRetriever(PhaseRetriever):
     def __init__(self,
         q_values,lmax, corr, cospsi,
         n_theta = 100, n_phi = 100,
-        bark = False,
+        bark = False, normalize_cl = False,
         **kwargs):
 
         # check that q_values, cospsi is ascending
@@ -44,7 +44,9 @@ class MixRetriever(PhaseRetriever):
         **kwargs)
 
         # normalize leg coefs by the maximum in each q
-        self.cl = self.norm_leg_coefs( self.cl )
+        self.normalize_cl = normalize_cl
+        if self.normalize_cl:
+            self.cl = self.norm_leg_coefs( self.cl )
 
         # components of the mix, with known structures therefore known cls
         self.known_cl = {}
@@ -184,15 +186,16 @@ class MixRetriever(PhaseRetriever):
                     c = self._leg_proj_legguass( xnew, signal_interp, ws)
                     cl[:,i,j] = c
                     cl[:,j,i] = c  # copy it to the lower triangle too
-
-        cl = self.norm_leg_coefs( cl )
+        if self.normalize_cl:
+            cl = self.norm_leg_coefs( cl )
         return cl
     #########
     # unmix
     #########
     def unmix(self, num_components,
         known_components, 
-        unknown_components = []
+        unknown_components = [],
+        normalized_weights = True
         ):
         """
         unmix self.corr into components
@@ -211,8 +214,10 @@ class MixRetriever(PhaseRetriever):
         if len(known_components) == num_components:
             # this is the case where all the structures are known and we only need to fit for concentrations
             assert( np.all( [name in self.known_cl.keys() for name in known_components] ) )
-
-            self._fit1()
+            if normalized_weights:
+                self._fit1()
+            else:
+                self._fit2()
 
 
         else:
@@ -223,7 +228,7 @@ class MixRetriever(PhaseRetriever):
     #########################
     # fit for concentrations
     #########################
-    def _weighted_sum(self, X, *weights):
+    def _norm_weighted_sum(self, X, *weights):
         n_things = len(X)
         sum = np.zeros_like( X[0] )
         for ii in range(n_things-1):
@@ -231,20 +236,40 @@ class MixRetriever(PhaseRetriever):
         sum += X[-1] * (1.0 - np.sum(weights) )
 
         return sum
+    
+    def _weighted_sum(self, X, *weights):
+        n_things = len(X)
+        sum = np.zeros_like( X[0] )
+        for ii in range(n_things):
+            sum +=  X[ii] * weights[ii] 
+        
+        return sum
 
     def _fit1(self):
         X = [ self.known_cl[k].flatten("c") for k in self.known_cl.keys()]
         Y = self.cl.flatten("c")
 
         p0 = [1.0/len( self.known_cl.keys() )] * (len( self.known_cl.keys() ) - 1 )
-        con, _  = curve_fit(self._weighted_sum, X, Y, p0=p0)
+        con, _  = curve_fit(self._norm_weighted_sum, X, Y, p0=p0)
 
         for idx, k in enumerate( self.known_cl.keys() ):
             if idx < len(con):
                 self.guess_concentration.update( {k: con[idx] })
             else:
-                self.guess_concentration.update( {k: (1.0 - np.sum(con)) })                
+                self.guess_concentration.update( {k: (1.0 - np.sum(con)) })
 
+    def _fit2(self):
+
+        X = [ self.known_cl[k].flatten("c") for k in self.known_cl.keys()]
+        Y = self.cl.flatten("c")
+        guess_num = self.cl[:,0,0].max()/\
+        self.known_cl[ self.known_cl.keys()[0] ][:,0,0].max()
+        p0 = [guess_num] * (len( self.known_cl.keys() ) )
+        con, _  = curve_fit(self._weighted_sum, X, Y, p0=p0)
+
+        for idx, k in enumerate( self.known_cl.keys() ):
+            self.guess_concentration.update( {k: con[idx] })
+            
     ###########################
     # fit for unknown leg coefs
     ###########################

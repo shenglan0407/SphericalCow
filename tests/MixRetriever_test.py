@@ -156,7 +156,7 @@ def _compute_corr(x, y):
 if __name__=="__main__":
     # mr = test_init()
     # test_add_known_component( mr )
-    # test_sum_component()
-    test_fit1()
+    test_sum_component()
+    # test_fit1()
 
     
