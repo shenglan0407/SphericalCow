@@ -100,6 +100,21 @@ class MixRetriever(PhaseRetriever):
 
         return new_cl
 
+    def change_mix_corr(self, 
+        q_values, lmax,
+        new_corr,new_cospsi,
+        **kwargs):
+        """
+        change the mixture corr used in fitting
+        """
+        PhaseRetriever.__init__(self,
+        q_values, lmax, self.n_theta, self.n_phi,
+        corr = new_corr, cospsi = new_cospsi,
+        **kwargs)
+        
+        if self.normalize_cl:
+            self.cl = self.norm_leg_coefs( self.cl )        
+
 
     #########################
     # mix component leg coefs
@@ -195,7 +210,8 @@ class MixRetriever(PhaseRetriever):
     def unmix(self, num_components,
         known_components, 
         unknown_components = [],
-        normalized_weights = True
+        normalized_weights = False,
+        l_range = None
         ):
         """
         unmix self.corr into components
@@ -207,6 +223,10 @@ class MixRetriever(PhaseRetriever):
         keyword args
         unknown_components - list of str, name of components that have unknown structures
         
+        normalized_weights - bool, default False, if True, assumes that the weights/concentrations
+        are normalized
+
+        l_range - list of int, default None, the list of l orders to use for unmixing
         """
 
         assert(len(known_components)+len(unknown_components) == num_components)
@@ -215,9 +235,9 @@ class MixRetriever(PhaseRetriever):
             # this is the case where all the structures are known and we only need to fit for concentrations
             assert( np.all( [name in self.known_cl.keys() for name in known_components] ) )
             if normalized_weights:
-                self._fit1()
+                self._fit1(l_range = l_range)
             else:
-                self._fit2()
+                self._fit2(l_range = l_range)
 
 
         else:
@@ -245,9 +265,14 @@ class MixRetriever(PhaseRetriever):
         
         return sum
 
-    def _fit1(self):
-        X = [ self.known_cl[k].flatten("c") for k in self.known_cl.keys()]
-        Y = self.cl.flatten("c")
+    def _fit1(self, l_range= None):
+        if l_range is None:
+            X = [ self.known_cl[k].flatten("c") for k in self.known_cl.keys()]
+            Y = self.cl.flatten("c")
+
+        else:
+            X = [ self.known_cl[k][l_range].flatten("c") for k in self.known_cl.keys()]
+            Y = self.cl[l_range].flatten("c")
 
         p0 = [1.0/len( self.known_cl.keys() )] * (len( self.known_cl.keys() ) - 1 )
         con, _  = curve_fit(self._norm_weighted_sum, X, Y, p0=p0)
@@ -258,10 +283,16 @@ class MixRetriever(PhaseRetriever):
             else:
                 self.guess_concentration.update( {k: (1.0 - np.sum(con)) })
 
-    def _fit2(self):
+    def _fit2(self, l_range= None):
 
-        X = [ self.known_cl[k].flatten("c") for k in self.known_cl.keys()]
-        Y = self.cl.flatten("c")
+        
+        if l_range is None:
+            X = [ self.known_cl[k].flatten("c") for k in self.known_cl.keys()]
+            Y = self.cl.flatten("c")
+
+        else:
+            X = [ self.known_cl[k][l_range].flatten("c") for k in self.known_cl.keys()]
+            Y = self.cl[l_range].flatten("c")
         guess_num = self.cl[:,0,0].max()/\
         self.known_cl[ self.known_cl.keys()[0] ][:,0,0].max()
         p0 = [guess_num] * (len( self.known_cl.keys() ) )
