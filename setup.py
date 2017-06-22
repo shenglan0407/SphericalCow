@@ -6,7 +6,7 @@ setup(
     description='Simulating and analysizing CXS data using spherical harmonics',
     author='Shenglan Qiao',
     author_email='shenglan@stanford.edu',
-    url='https://github.com/shenglan0407/SphericalCow.git',
+    url='https://github.com/shenglan0407/SphericalCow',
     packages=['SpericalCow'],
     package_dir={'SpericalCow':'src'}
     )
